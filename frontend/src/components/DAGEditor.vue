@@ -3,7 +3,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch, onBeforeUnmount, defineExpose } from 'vue'
+import { onMounted, ref, onBeforeUnmount, defineExpose } from 'vue'
 import G6 from '@antv/g6'
 
 const props = defineProps({
@@ -15,6 +15,7 @@ const props = defineProps({
 
 const container = ref(null)
 let graph = null
+let selectedNode = null
 
 onMounted(() => {
   graph = new G6.Graph({
@@ -28,7 +29,8 @@ onMounted(() => {
       type: 'rect',
       style: {
         fill: '#fff',
-        stroke: '#5B8FF9'
+        stroke: '#5B8FF9',
+        radius: 4
       }
     },
     defaultEdge: {
@@ -48,9 +50,9 @@ onMounted(() => {
     // default sample
     const data = {
       nodes: [
-        { id: 'start', label: 'Start', x: 100, y: 100 },
-        { id: 'task1', label: 'Task 1', x: 300, y: 100 },
-        { id: 'task2', label: 'Task 2', x: 500, y: 100 }
+        { id: 'start', label: 'Start', x: 100, y: 100, data: { type: 'start' } },
+        { id: 'task1', label: 'Task 1', x: 300, y: 100, data: { type: 'task', table: 'table_a' } },
+        { id: 'task2', label: 'Task 2', x: 500, y: 100, data: { type: 'task', table: 'table_b' } }
       ],
       edges: [
         { source: 'start', target: 'task1' },
@@ -60,6 +62,21 @@ onMounted(() => {
     graph.data(data)
   }
   graph.render()
+
+  // node click -> select and record
+  graph.on('node:click', (ev) => {
+    const item = ev.item
+    selectedNode = item
+    const model = item.getModel()
+    // emit custom DOM event by setting dataset on container element (parent can read via ref)
+    try { container.value.dispatchEvent(new CustomEvent('dag-node-selected', { detail: model })) } catch(e){}
+  })
+
+  // click canvas to clear selection
+  graph.on('canvas:click', () => {
+    selectedNode = null
+    try { container.value.dispatchEvent(new CustomEvent('dag-node-selected', { detail: null })) } catch(e){}
+  })
 
   // handle resize
   const resizeObserver = new ResizeObserver(() => {
@@ -100,5 +117,21 @@ function loadGraphData(data) {
   }
 }
 
-defineExpose({ getGraphData, loadGraphData })
+function setNodeProperties(nodeId, props) {
+  if (!graph) return false
+  const node = graph.findById(nodeId)
+  if (!node) return false
+  const model = node.getModel()
+  model.data = Object.assign({}, model.data || {}, props)
+  if (props.label) model.label = props.label
+  graph.updateItem(node, model)
+  return true
+}
+
+function getSelectedNode() {
+  if (!selectedNode) return null
+  return selectedNode.getModel()
+}
+
+defineExpose({ getGraphData, loadGraphData, setNodeProperties, getSelectedNode })
 </script>

@@ -1,30 +1,35 @@
 <template>
-  <div>
-    <el-row>
-      <el-col :span="16">
-        <h3>{{task.taskName}}</h3>
-        <dag-editor ref="dagEditor" v-if="showDag" :initialData="initialDag" />
-        <div style="margin-top:12px">
+  <div style="display:flex;gap:12px;align-items:flex-start">
+    <div style="flex:1">
+      <el-row>
+        <el-col :span="16">
+          <h3>{{task.taskName}}</h3>
+        </el-col>
+        <el-col :span="8" style="text-align:right">
           <el-button type="primary" @click="saveDag">保存 DAG</el-button>
           <el-button @click="exportDag">导出 JSON</el-button>
-        </div>
-      </el-col>
-      <el-col :span="8">
-        <h4>执行日志 / 实时进度</h4>
-        <div v-for="e in executions" :key="e.id" style="margin-bottom:12px;border-bottom:1px dashed #eee;padding-bottom:8px">
-          <div>执行ID: {{e.id}} 状态: {{e.status}} 开始: {{formatTime(e.startTime)}}</div>
-          <pre style="white-space:pre-wrap">{{ e.executionLog }}</pre>
-        </div>
-      </el-col>
-    </el-row>
+        </el-col>
+      </el-row>
+
+      <div style="border:1px solid #eee;margin-top:8px">
+        <dag-editor ref="dagEditor" v-if="showDag" :initialData="initialDag" />
+      </div>
+    </div>
+
+    <div style="width:320px;border-left:1px solid #f0f0f0;padding-left:12px">
+      <h4>节点属性</h4>
+      <node-properties v-if="selectedNode" :node="selectedNode" @apply="applyNodeProperties" />
+      <div v-else style="color:#888">未选中节点，点击节点以编辑属性</div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
 import { getTask, getExecutions } from '../api/tasks'
 import { useRoute } from 'vue-router'
 import DAGEditor from '../components/DAGEditor.vue'
+import NodeProperties from '../components/NodeProperties.vue'
 import SockJS from 'sockjs-client'
 import Stomp from 'stompjs'
 import axios from 'axios'
@@ -36,15 +41,14 @@ const executions = ref([])
 const showDag = ref(true)
 const dagEditor = ref(null)
 const initialDag = ref(null)
+const selectedNode = ref(null)
 
 onMounted(() => {
   getTask(id).then(r => {
     task.value = r.data
-    // if dagConfig exists, try to parse and load
     if (task.value.dagConfig) {
       try {
         initialDag.value = JSON.parse(task.value.dagConfig)
-        // when DAGEditor is ready, it will receive initialData prop
       } catch (e) {
         console.warn('Invalid dagConfig JSON in task', e)
       }
@@ -52,6 +56,16 @@ onMounted(() => {
   })
   loadExecutions()
   connectWebSocket()
+
+  // listen for selection events dispatched from DAGEditor container
+  setTimeout(() => {
+    const editorEl = document.querySelector('[ref="dagEditor"]')
+    // As ref isn't attached to DOM attribute reliably in template, listen to global container via setInterval
+    // Instead, add event listener to document and rely on DAGEditor dispatching CustomEvent on its root container
+    document.addEventListener('dag-node-selected', (ev) => {
+      selectedNode.value = ev.detail
+    })
+  }, 300)
 })
 
 function loadExecutions() {
@@ -109,9 +123,13 @@ function exportDag() {
   URL.revokeObjectURL(url)
 }
 
-function formatTime(ts) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  return d.toLocaleString()
+function applyNodeProperties(nodeId, props) {
+  if (!dagEditor.value) return
+  const ok = dagEditor.value.setNodeProperties(nodeId, props)
+  if (ok) {
+    // refresh selectedNode to updated model
+    const model = dagEditor.value.getSelectedNode()
+    selectedNode.value = model
+  }
 }
 </script>
